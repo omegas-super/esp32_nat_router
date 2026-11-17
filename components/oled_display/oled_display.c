@@ -2,15 +2,17 @@
  *
  * ESP32-C3 build: 72x40 SSD1306 (0.42") on GPIO 5/6, disabled by default.
  * ESP32-S3 build: 128x64 SSD1306 on GPIO 17/18, disabled by default.
+ * ESP32 build:    128x64 SSD1306 on GPIO 21/22, disabled by default.
  */
 
 #include "oled_display.h"
 
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
 
 #include <string.h>
 #include <stdio.h>
 #include "oled_display.h"
+#include "button_ui.h"
 #include "font5x7.h"
 #include "esp_log.h"
 #include "nvs.h"
@@ -48,6 +50,12 @@ static const char *TAG = "oled";
 /* Heltec WiFi LoRa 32 V3 control pins */
 #define HELTEC_VEXT_GPIO      GPIO_NUM_36
 #define HELTEC_OLED_RST_GPIO  GPIO_NUM_21
+#elif defined(CONFIG_IDF_TARGET_ESP32)
+/* SSD1306 128x64 display parameters (generic ESP32 / 0.96" module) */
+#define OLED_WIDTH        128
+#define OLED_HEIGHT       64
+#define OLED_PAGES        8
+#define OLED_COL_OFFSET   0
 #else
 /* SSD1306 72x40 display parameters */
 #define OLED_WIDTH        72
@@ -57,7 +65,7 @@ static const char *TAG = "oled";
 #endif
 #define FB_SIZE           (OLED_WIDTH * OLED_PAGES)
 /* display page rotation */
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32)
 #define OLED_PAGE_COUNT     2
 #define OLED_PAGE_INTERVAL  5000  /* ms per page */
 #else
@@ -68,8 +76,8 @@ static const char *TAG = "oled";
 #define CHAR_W  6  /* 5 pixel glyph + 1 pixel spacing */
 #define MAX_COLS (OLED_WIDTH / CHAR_W)
 
-/* Set larger font for ESP32S3 */
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
+/* Set larger font for 128x64 targets */
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32)
 #define BIG_CHAR_W   11   /* 10 px glyph + 1 px spacing */
 #define BIG_CHAR_H   16   /* 14 px glyph + 2 px spacing */
 #define BIG_MAX_COLS (OLED_WIDTH / BIG_CHAR_W)
@@ -168,7 +176,7 @@ static esp_err_t oled_cmd(uint8_t cmd)
 
 static esp_err_t oled_init_display(void)
 {
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32)
     /* SSD1306 init sequence for 128x64 */
     static const uint8_t init_cmds[] = {
         0xAE,       /* Display off */
@@ -259,7 +267,7 @@ static void render_status(int page)
 
     fb_clear();
 
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32)
 
     if (page == 0) {
         /* Page 1: SSIDs with big labels and normal values */
@@ -417,7 +425,19 @@ static void oled_task(void *arg)
             resync_counter = 0;
         }
 
+#if defined(CONFIG_IDF_TARGET_ESP32)
+        /* On boards with the five-button front panel the buttons choose the
+         * screen; without them the original timed page rotation still runs.
+         * button_ui_screen() is a cheap volatile read. */
+        int ui_screen = (int)button_ui_screen();
+        if (ui_screen < OLED_PAGE_COUNT) {
+            render_status(ui_screen);
+        } else {
+            render_status(0);
+        }
+#else
         render_status(current_page);
+#endif
 
         err = oled_flush();
         if (err != ESP_OK) {
@@ -518,4 +538,4 @@ void oled_display_get_config(bool *enabled, int *sda, int *scl)
     nvs_close(nvs);
 }
 
-#endif /* CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3 */
+#endif /* CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3 */

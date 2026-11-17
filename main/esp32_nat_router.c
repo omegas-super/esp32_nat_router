@@ -67,6 +67,7 @@
 #include "remote_console.h"
 #include "syslog_client.h"
 #include "oled_display.h"
+#include "button_ui.h"
 #include "led_strip_status.h"
 #if !defined(CONFIG_IDF_TARGET_ESP32C5)
 #include "mdns.h"
@@ -177,7 +178,9 @@ uint8_t led_toggle = 0;  // Shared toggle state for packet-driven LED flicker
 
 int antenna_gpio = -1;      // -1 means antenna switching disabled (pins untouched)
 int antenna_en_gpio = -1;   // Optional RF-switch enable pin, driven low
-uint8_t antenna_state = 0;  // 0 = on-board antenna, 1 = external antenna
+int antenna_gpio2 = -1;     // Optional second select pin (bit 1 of a 2-bit mux)
+uint8_t antenna_state = 0;  // selected antenna index (0..antenna_count-1)
+uint8_t antenna_count = 2;  // 2 with one select pin, up to 4 with two
 
 uint32_t my_ip;
 uint32_t my_ap_ip;
@@ -1216,12 +1219,51 @@ esp_err_t antenna_switch_apply(void)
 
     gpio_reset_pin((gpio_num_t)antenna_gpio);
     gpio_set_direction((gpio_num_t)antenna_gpio, GPIO_MODE_OUTPUT);
-    gpio_set_level((gpio_num_t)antenna_gpio, antenna_state);
 
-    ESP_LOGI(TAG, "Antenna switch: GPIO%d = %d (%s antenna)",
-             antenna_gpio, antenna_state,
-             antenna_state ? "external" : "on-board");
+    /* Two-pin selector: antenna_gpio carries bit 0 and antenna_gpio2 bit 1,
+     * giving up to four positions.  With antenna_gpio2 unset the original
+     * single-pin binary behaviour is unchanged. */
+    gpio_set_level((gpio_num_t)antenna_gpio, antenna_state & 0x01);
+
+    if (antenna_gpio2 >= 0) {
+        if (!GPIO_IS_VALID_OUTPUT_GPIO(antenna_gpio2)) {
+            ESP_LOGE(TAG, "Antenna switch: GPIO%d is not usable as output", antenna_gpio2);
+            return ESP_ERR_INVALID_ARG;
+        }
+        gpio_reset_pin((gpio_num_t)antenna_gpio2);
+        gpio_set_direction((gpio_num_t)antenna_gpio2, GPIO_MODE_OUTPUT);
+        gpio_set_level((gpio_num_t)antenna_gpio2, (antenna_state >> 1) & 0x01);
+
+        ESP_LOGI(TAG, "Antenna switch: GPIO%d=%d GPIO%d=%d (antenna %d of %d)",
+                 antenna_gpio, antenna_state & 0x01,
+                 antenna_gpio2, (antenna_state >> 1) & 0x01,
+                 antenna_state, antenna_count);
+    } else {
+        ESP_LOGI(TAG, "Antenna switch: GPIO%d = %d (%s antenna)",
+                 antenna_gpio, antenna_state,
+                 antenna_state ? "external" : "on-board");
+    }
     return ESP_OK;
+}
+
+/* Select antenna by index.  With one select pin only positions 0 and 1 are
+ * reachable; with a second select pin up to four are. */
+esp_err_t antenna_select(uint8_t index)
+{
+    if (antenna_gpio < 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (index >= antenna_count) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    antenna_state = index;
+    esp_err_t err = set_config_param_int("ant_sel", antenna_state);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Antenna switch: failed to save selection: %s", esp_err_to_name(err));
+        return err;
+    }
+    return antenna_switch_apply();
 }
 
 esp_err_t antenna_switch_set(int gpio, int state, int en_gpio)
@@ -1251,10 +1293,14 @@ esp_err_t antenna_switch_set(int gpio, int state, int en_gpio)
     if (antenna_en_gpio >= 0 && antenna_en_gpio != gpio && antenna_en_gpio != en_gpio) {
         gpio_reset_pin((gpio_num_t)antenna_en_gpio);
     }
+    if (antenna_gpio2 >= 0 && antenna_gpio2 != gpio && antenna_gpio2 != en_gpio) {
+        gpio_reset_pin((gpio_num_t)antenna_gpio2);
+    }
 
     antenna_gpio = gpio;
     antenna_en_gpio = en_gpio;
     antenna_state = (state != 0) ? 1 : 0;
+    /* antenna_gpio2 is configured separately by antenna_switch_set2(). */
 
     esp_err_t err = set_config_param_int("ant_gpio", antenna_gpio);
     if (err == ESP_OK) {
@@ -1269,6 +1315,47 @@ esp_err_t antenna_switch_set(int gpio, int state, int en_gpio)
     }
 
     return antenna_switch_apply();
+}
+
+/* Configure the second select pin of a 2-bit antenna mux (up to 4 antennas).
+ * Pass -1 to go back to the single-pin binary switch. */
+esp_err_t antenna_switch_set2(int gpio2)
+{
+    if (gpio2 >= 0 && !GPIO_IS_VALID_OUTPUT_GPIO(gpio2)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (gpio2 >= 0 && (gpio2 == antenna_gpio || gpio2 == antenna_en_gpio)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (antenna_gpio2 >= 0 && antenna_gpio2 != gpio2) {
+        gpio_reset_pin((gpio_num_t)antenna_gpio2);
+    }
+
+    antenna_gpio2 = gpio2;
+    antenna_count = (gpio2 >= 0) ? 4 : 2;
+    if (antenna_state >= antenna_count) {
+        antenna_state = 0;
+    }
+
+    esp_err_t err = set_config_param_int("ant_gpio2", antenna_gpio2);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Antenna switch: failed to save second select pin: %s",
+                 esp_err_to_name(err));
+        return err;
+    }
+
+    return antenna_switch_apply();
+}
+
+/* Delayed restart helper for the button UI and console commands. */
+void restart_after(int seconds)
+{
+    if (seconds > 0) {
+        ESP_LOGW(TAG, "Restarting in %d s", seconds);
+        vTaskDelay(pdMS_TO_TICKS(seconds * 1000));
+    }
+    esp_restart();
 }
 
 void app_main(void)
@@ -1398,6 +1485,18 @@ void app_main(void)
         int ant_sel_setting = 0;
         get_config_param_int("ant_sel", &ant_sel_setting);
         antenna_state = (ant_sel_setting != 0) ? 1 : 0;
+
+        /* Optional second select pin: turns the switch into a 2-bit mux
+         * addressing up to four antennas.  Unset means the original
+         * single-pin binary behaviour. */
+        int ant_gpio2_setting = -1;
+        if (get_config_param_int("ant_gpio2", &ant_gpio2_setting) == ESP_OK) {
+            antenna_gpio2 = ant_gpio2_setting;
+            antenna_count = (antenna_gpio2 >= 0) ? 4 : 2;
+            if (antenna_state >= antenna_count) {
+                antenna_state = 0;
+            }
+        }
     }
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
     else {
@@ -1707,7 +1806,11 @@ void app_main(void)
     // Initialize syslog client (UDP forwarding, disabled by default)
     syslog_init();
 
-    // Initialize OLED display (ESP32-S3 defaults to enabled on GPIO17/18)
+    // Initialize the five-button front panel (no-op unless btn_sel is set).
+    // Started before the OLED so the first screen is already known.
+    button_ui_init();
+
+    // Initialize OLED display (disabled by default; set_oled enable + reboot)
     oled_display_init();
 
     initialize_console();

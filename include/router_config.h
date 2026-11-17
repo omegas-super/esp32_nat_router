@@ -66,15 +66,24 @@ extern int led_strip_gpio;
 #define ANTENNA_BOARD_HINT "Check the board schematic for the GPIO that drives the RF switch."
 #endif
 
-// Antenna select GPIO (-1 = antenna switching disabled, pins left alone)
+// Antenna select GPIO, bit 0 of the mux (-1 = antenna switching disabled,
+// pins left alone)
 extern int antenna_gpio;
 
 // Optional RF-switch enable GPIO, driven low while the switch is in use
 // (-1 = board has no enable pin)
 extern int antenna_en_gpio;
 
-// Level driven on antenna_gpio: 0 = on-board antenna, 1 = external antenna
+// Optional second select GPIO, bit 1 of the mux.  With this set the switch
+// addresses up to four antennas; unset keeps the original binary behaviour.
+extern int antenna_gpio2;
+
+// Selected antenna index: 0..antenna_count-1.  With a single select pin only
+// 0 (on-board) and 1 (external) are reachable.
 extern uint8_t antenna_state;
+
+// Number of reachable antenna positions: 2 with one select pin, 4 with two.
+extern uint8_t antenna_count;
 
 // Drive the configured pins from the current antenna_* values (no NVS write).
 // Does nothing when antenna_gpio is negative.
@@ -83,6 +92,16 @@ esp_err_t antenna_switch_apply(void);
 // Persist and apply an antenna switch configuration. A negative gpio disables
 // the switch and releases the previously used pins; en_gpio may be negative.
 esp_err_t antenna_switch_set(int gpio, int state, int en_gpio);
+
+// Configure the second select pin of a 2-bit antenna mux (up to 4 antennas).
+// Pass -1 to return to the single-pin binary switch.
+esp_err_t antenna_switch_set2(int gpio2);
+
+// Select an antenna by index and persist it.
+esp_err_t antenna_select(uint8_t index);
+
+// Restart the router after the given number of seconds (0 = immediately).
+void restart_after(int seconds);
 
 // TTL override for STA upstream and downstream (0 = disabled/no change, 1-255 = fixed TTL;
 // downstream rewrite only for values >= 2)

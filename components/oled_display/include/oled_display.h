@@ -8,11 +8,17 @@
 extern "C" {
 #endif
 
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
 
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
 #define OLED_DEFAULT_SDA  17
 #define OLED_DEFAULT_SCL  18
+#elif defined(CONFIG_IDF_TARGET_ESP32)
+/* Plain ESP32 (WROOM/WROVER). GPIO21/22 are the conventional I2C pins and are
+ * free on every WROOM variant: not strapping pins, not the SPI flash bus
+ * (6-11), not input-only (34-39), not the UART console (1/3). */
+#define OLED_DEFAULT_SDA  21
+#define OLED_DEFAULT_SCL  22
 #else
 #define OLED_DEFAULT_SDA  5
 #define OLED_DEFAULT_SCL  6
@@ -48,7 +54,7 @@ void oled_display_set_gpio(int sda, int scl);
  */
 void oled_display_get_config(bool *enabled, int *sda, int *scl);
 
-#else /* !CONFIG_IDF_TARGET_ESP32C3 && !CONFIG_IDF_TARGET_ESP32S3 */
+#else /* !CONFIG_IDF_TARGET_ESP32 && !CONFIG_IDF_TARGET_ESP32C3 && !CONFIG_IDF_TARGET_ESP32S3 */
 
 static inline void oled_display_init(void) {}
 static inline void oled_display_enable(void) {}
@@ -60,7 +66,7 @@ static inline void oled_display_get_config(bool *enabled, int *sda, int *scl) {
     if (scl) *scl = 0;
 }
 
-#endif /* CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3 */
+#endif /* CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3 */
 
 #ifdef __cplusplus
 }

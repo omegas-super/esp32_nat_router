@@ -40,7 +40,9 @@ idf.py -B build_eth -D SDKCONFIG=sdkconfig.eth \
   - `cmd_router` — almost all console commands, plus the NVS accessors `get/set_config_param_{str,int,blob}` (declared in `include/wifi_config.h`).
   - `cmd_system` — system commands (heap, tasks, restart, …).
   - `http_server` — web UI. Pages are C string macros in `pages/page_*.h`, streamed in chunks; handlers and `/api/*` endpoints (config export/import, VPN import, OTA upload) in `http_server.c`.
-  - `acl` (firewall), `pcap_capture` (ring buffer + TCP stream on port 19000), `remote_console` (TCP CLI, default 2323), `dhcpserver` (patched copy of the lwIP/IDF DHCP server), `mqtt_ha`, `oled_display`, `syslog`.
+  - `acl` (firewall), `pcap_capture` (ring buffer + TCP stream on port 19000), `remote_console` (TCP CLI, default 2323), `dhcpserver` (patched copy of the lwIP/IDF DHCP server), `mqtt_ha`, `oled_display`, `button_ui`, `syslog`.
+  - `oled_display` builds for `esp32`, `esp32c3` and `esp32s3`. Plain ESP32 uses the 128x64 layout on GPIO21/22 by default; the C3 uses 72x40 on 5/6, the S3 uses 128x64 on 17/18 with the Heltec Vext/reset pins.
+  - `button_ui` — five-button front panel (up/down/left/right/select) for ESP32 builds. Polled at 20 ms with 40 ms debounce, active-low to GND with internal pull-ups. Disabled and allocation-free unless `btn_sel` is set in NVS. Buttons drive the OLED screen selection via `button_ui_screen()`; on boards without buttons the display keeps its timed page rotation. See `docs/esp32-wroom-hardware.md` for the pin map.
 - `include/` — shared headers across main and components (`router_config.h` has global tuning vars and `AP_MAX_CONNECTIONS`, which is 5 on C3/C5 and 8 elsewhere).
 - `esp_nat_bridge.py` — MCP server (fastmcp + telnetlib3) that drives the router through the remote console and **parses console output with regexes**. If you change the text of a console command's output, update the bridge too.
 

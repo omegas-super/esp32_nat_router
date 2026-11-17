@@ -52,6 +52,7 @@ extern uint8_t web_ui_get_bind(void);
 extern void    web_ui_set_bind(uint8_t bind);
 #include "syslog_client.h"
 #include "oled_display.h"
+#include "button_ui.h"
 #include "esp_ota_ops.h"
 #include "esp_app_desc.h"
 
@@ -101,8 +102,10 @@ static void register_set_rf_switch(void);
 #endif
 static void register_acl(void);
 static void register_remote_console_cmd(void);
+static void register_set_antenna2(void);
+static void register_set_buttons(void);
 static void register_syslog_cmd(void);
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
 static void register_set_oled(void);
 static void register_set_oled_gpio(void);
 #endif
@@ -459,6 +462,8 @@ void register_router(void)
     register_set_sta_band();
 #endif
     register_set_antenna();
+    register_set_antenna2();
+    register_set_buttons();
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
     register_set_rf_switch();
 #endif
@@ -466,7 +471,7 @@ void register_router(void)
     register_syslog_cmd();
     register_set_tz();
     register_set_vpn();
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
     register_set_oled();
     register_set_oled_gpio();
 #endif
@@ -2753,6 +2758,115 @@ static void register_set_antenna(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
+/* 'set_antenna2' command - second select pin for a 2-bit, 4-antenna mux */
+static int set_antenna2_cmd(int argc, char **argv)
+{
+    if (argc < 2) {
+        printf("Second antenna select GPIO: %d\n", antenna_gpio2);
+        printf("Reachable antennas: %u\n", (unsigned)antenna_count);
+        printf("\nUsage: set_antenna2 <gpio|off>\n");
+        printf("  Second select pin turns the switch into a 2-bit mux:\n");
+        printf("  antenna 0..3 driven as (bit1,bit0) on <gpio2>,<ant_gpio>.\n");
+        return 0;
+    }
+
+    if (strcmp(argv[1], "off") == 0) {
+        esp_err_t err = antenna_switch_set2(-1);
+        printf(err == ESP_OK ? "Second select pin disabled.\n"
+                             : "Failed to save setting\n");
+        return err;
+    }
+
+    char *endptr;
+    int gpio = strtol(argv[1], &endptr, 10);
+    if (*endptr != '\0' || gpio < 0 || gpio > 48) {
+        printf("Invalid GPIO. Use 0-48 or 'off'.\n");
+        return 1;
+    }
+
+    esp_err_t err = antenna_switch_set2(gpio);
+    if (err == ESP_OK) {
+        printf("Second antenna select pin set to GPIO %d (%u antennas).\n",
+               gpio, (unsigned)antenna_count);
+        printf("Setting saved (persists across reboots).\n");
+    } else {
+        printf("Failed to save setting\n");
+    }
+    return err;
+}
+
+static void register_set_antenna2(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "set_antenna2",
+        .help = "Second antenna select GPIO for a 2-bit (4-antenna) mux, or 'off'",
+        .hint = " <gpio|off>",
+        .func = &set_antenna2_cmd,
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
+/* 'set_buttons' command - configure the five front-panel buttons */
+static int set_buttons_cmd(int argc, char **argv)
+{
+    int up, down, left, right, sel;
+
+    if (argc < 2) {
+        bool on = button_ui_get_gpio(&up, &down, &left, &right, &sel);
+        printf("Button UI: %s\n", on ? "enabled" : "disabled");
+        if (on) {
+            printf("  up=%d down=%d left=%d right=%d select=%d\n",
+                   up, down, left, right, sel);
+            printf("  current screen: %d, cursor: %d\n",
+                   (int)button_ui_screen(), button_ui_cursor());
+        }
+        printf("\nUsage: set_buttons <up> <down> <left> <right> <select>\n");
+        printf("       set_buttons off\n");
+        printf("GPIOs are active-low to GND with internal pull-ups.\n");
+        printf("Avoid 6-11 (flash), 34-39 (input only), 0/2/12/15 (strapping).\n");
+        return 0;
+    }
+
+    if (strcmp(argv[1], "off") == 0) {
+        button_ui_set_gpio(-1, -1, -1, -1, -1);
+        printf("Button UI disabled. Restart to take effect.\n");
+        return 0;
+    }
+
+    if (argc < 6) {
+        printf("Need five GPIO numbers: <up> <down> <left> <right> <select>\n");
+        return 1;
+    }
+
+    int *dst[5] = { &up, &down, &left, &right, &sel };
+    for (int i = 0; i < 5; i++) {
+        char *endptr;
+        long v = strtol(argv[i + 1], &endptr, 10);
+        if (*endptr != '\0' || v < 0 || v > 48) {
+            printf("Invalid GPIO '%s'. Use 0-48.\n", argv[i + 1]);
+            return 1;
+        }
+        *dst[i] = (int)v;
+    }
+
+    button_ui_set_gpio(up, down, left, right, sel);
+    printf("Buttons set: up=%d down=%d left=%d right=%d select=%d\n",
+           up, down, left, right, sel);
+    printf("Restart the device for changes to take effect.\n");
+    return 0;
+}
+
+static void register_set_buttons(void)
+{
+    const esp_console_cmd_t cmd = {
+        .command = "set_buttons",
+        .help = "Configure the five front-panel buttons (up/down/left/right/select)",
+        .hint = " <up> <down> <left> <right> <select> | off",
+        .func = &set_buttons_cmd,
+    };
+    ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
+}
+
 #if defined(CONFIG_IDF_TARGET_ESP32C6)
 /* 'set_rf_switch_XIAO' command - XIAO ESP32-C6 antenna selection.
  * Kept for compatibility; a thin wrapper over the generic antenna switch
@@ -3694,7 +3808,7 @@ static void register_set_tz(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
-#if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32) || defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32S3)
 
 /* 'set_oled' command - enable/disable OLED display */
 static int set_oled_cmd(int argc, char **argv)
@@ -3784,7 +3898,7 @@ static void register_set_oled_gpio(void)
     ESP_ERROR_CHECK( esp_console_cmd_register(&cmd) );
 }
 
-#endif /* CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3 */
+#endif /* CONFIG_IDF_TARGET_ESP32 || CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3 */
 
 #if !CONFIG_ETH_UPLINK
 /* Helper function to convert auth mode to string */
