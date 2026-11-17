@@ -129,7 +129,7 @@ static void fb_draw_string(int page, const char *str)
     }
 }
 
-#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#if defined(CONFIG_IDF_TARGET_ESP32S3) || defined(CONFIG_IDF_TARGET_ESP32)
 static void fb_draw_char_2x(int x, int y, char c)
 {
     if (c < 0x20 || c > 0x7E)
