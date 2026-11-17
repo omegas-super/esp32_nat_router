@@ -1,0 +1,76 @@
+name: Build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: esp32
+            sdkconfig_defaults: sdkconfig.defaults
+            build_dir: build_esp32
+          - target: esp32c3
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.defaults.esp32c3
+            build_dir: build_esp32c3
+          - target: esp32c6
+            sdkconfig_defaults: sdkconfig.defaults;sdkconfig.defaults.esp32c6
+            build_dir: build_esp32c6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: ${{ matrix.target }}
+          command: >-
+            idf.py
+            -B ${{ matrix.build_dir }}
+            -D SDKCONFIG_DEFAULTS="${{ matrix.sdkconfig_defaults }}"
+            build
+
+      - name: Check size against the ota_0 partition
+        run: |
+          bin="${{ matrix.build_dir }}/esp32_nat_router.bin"
+          if [ ! -f "$bin" ]; then
+            echo "Expected app binary not found: $bin"
+            exit 1
+          fi
+          size=$(stat -c%s "$bin")
+          limit=$((1536 * 1024))
+          pct=$((size * 100 / limit))
+          echo "App size: $size bytes (${pct}% of the ${limit}-byte ota_0 slot)"
+          if [ "$size" -gt "$limit" ]; then
+            echo "::error::App exceeds the 1536 KiB ota_0 partition"
+            exit 1
+          fi
+          if [ "$pct" -gt 95 ]; then
+            echo "::warning::App is at ${pct}% of the ota_0 partition"
+          fi
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.target }}
+          path: |
+            ${{ matrix.build_dir }}/esp32_nat_router.bin
+            ${{ matrix.build_dir }}/bootloader/bootloader.bin
+            ${{ matrix.build_dir }}/partition_table/partition-table.bin
+            ${{ matrix.build_dir }}/ota_data_initial.bin
+          if-no-files-found: error
