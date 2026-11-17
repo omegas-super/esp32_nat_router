@@ -36,7 +36,9 @@ Starting from this code base I started several spin-off projects with slightly d
 - **Serial Console**: Full CLI for advanced configuration
 - **Remote Console**: Network-accessible CLI via TCP (password protected, per-interface binding)
 - **LED Status Indicator**: Visual feedback via plain GPIO LED or addressable LED strip (WS2812/SK6812) with color-coded status
-- **OLED Display**: Status display on 72x40 I2C SSD1306 OLEDs (as found on some ESP32-C3 mini boards)
+- **OLED Display**: Status display on I2C SSD1306 OLEDs — 72x40 on ESP32-C3, 128x64 on ESP32-S3 and plain ESP32 (default GPIO 21/22)
+- **Five-Button Front Panel**: Up/Down/Left/Right/Select buttons page through the OLED screens and select the active antenna (ESP32 builds; see `docs/esp32-wroom-hardware.md`)
+- **Multi-Antenna Switch**: Drive an RF switch from one select pin (on-board/external) or two pins for a 2-bit mux addressing up to four antennas
 - **MQTT Home Assistant**: Publish telemetry and per-client stats to MQTT with HA auto-discovery
 - **MCP Bridge (AI-Ready)**: BETA - Control the router from AI assistants (Claude, etc.) via the Model Context Protocol
 - **mDNS**: The router is reachable as `esp32-nat-router.local` via mDNS/Bonjour — no need to look up the IP address.
