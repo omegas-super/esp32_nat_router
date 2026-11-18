@@ -90,6 +90,8 @@ void button_ui_request_redraw(void) { redraw_requested = true; }
 
 /* ---- Event handling ---- */
 
+static const char *screen_name(ui_screen_t s);
+
 static void handle_event(button_event_t ev)
 {
     switch (ev) {
@@ -139,6 +141,17 @@ static void handle_event(button_event_t ev)
 
     default:
         break;
+    }
+
+    /* Log after the state change so the screen/cursor numbers are current.
+     * The console is the only way to verify the pin map on a board whose
+     * buttons cannot be traced by eye. */
+    static const char *ev_name[] = {
+        "none", "up", "down", "left", "right", "select", "select-long"
+    };
+    if (ev > BTN_NONE && ev <= BTN_SELECT_LONG) {
+        ESP_LOGI(TAG, "press %s -> screen %s cursor %d",
+                 ev_name[ev], screen_name(current_screen), current_cursor);
     }
 }
 
