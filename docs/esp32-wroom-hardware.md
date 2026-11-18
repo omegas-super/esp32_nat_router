@@ -21,15 +21,19 @@ Safe for both input-with-pull-up and output: **4, 13, 14, 16, 17, 18, 19, 21,
 
 ## Default pin map
 
+These values are **confirmed on real hardware** (ESP32-D0WD-V3, MAC
+78:ee:4c:01:62:f4) — the OLED displayed correctly and all five buttons
+registered presses on the serial log.
+
 | Function | GPIO | Notes |
 |----------|------|-------|
-| OLED SDA | 21 | I2C data |
-| OLED SCL | 22 | I2C clock |
-| Button UP | 32 | to GND, internal pull-up |
-| Button DOWN | 33 | to GND, internal pull-up |
-| Button LEFT | 25 | to GND, internal pull-up |
-| Button RIGHT | 26 | to GND, internal pull-up |
-| Button SELECT | 27 | to GND, internal pull-up |
+| OLED SDA | 21 | I2C data — confirmed working |
+| OLED SCL | 22 | I2C clock — confirmed working |
+| Button UP | 32 | to GND, internal pull-up — confirmed |
+| Button DOWN | 33 | to GND, internal pull-up — confirmed |
+| Button LEFT | 25 | to GND, internal pull-up — confirmed |
+| Button RIGHT | 26 | to GND, internal pull-up — confirmed |
+| Button SELECT | 27 | to GND, internal pull-up — confirmed |
 | Antenna select bit 0 | 16 | RF switch select |
 | Antenna select bit 1 | 17 | second select pin (2-bit mux, 4 antennas) |
 | Antenna enable | 4 | optional, driven low to power the switch |
@@ -69,6 +73,27 @@ display shows the status screen.
 
 Screens: **status** (SSIDs, IP, RSSI, clients) → **clients** → **antenna** →
 **system** (heap, uptime, temperature).
+
+Every press is logged to the console, which is how the pin map was verified:
+
+```
+I (20084) button_ui: press down -> screen clients cursor 0
+```
+
+At startup the task reports the idle level of each pin. All five should read
+`H`; an `L` means that pin is shorted to GND or its pull-up is missing:
+
+```
+I (944) button_ui: idle levels (H=ok L=stuck): H H H H H
+```
+
+### Debounce tuning
+
+The panel polls every 10 ms and accepts a change after 20 ms of stable level.
+The first version used 20 ms polling and a 40 ms debounce, which was too
+strict for these hand-soldered buttons: a normal press only held contact long
+enough to be sampled occasionally, so the buttons appeared to need a hard
+press. Shortening both fixed it without introducing false triggers.
 
 ## Three antennas
 
