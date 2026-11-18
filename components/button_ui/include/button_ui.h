@@ -41,8 +41,8 @@ typedef enum {
 } ui_screen_t;
 
 #define BUTTON_LONG_PRESS_MS 1500
-#define BUTTON_POLL_MS       20
-#define BUTTON_DEBOUNCE_MS   40
+#define BUTTON_POLL_MS       10   /* fast enough to catch a brief contact */
+#define BUTTON_DEBOUNCE_MS   20   /* two consecutive samples must agree */
 
 /**
  * @brief Initialise buttons from NVS and start the polling task.

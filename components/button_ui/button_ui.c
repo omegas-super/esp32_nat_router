@@ -29,6 +29,7 @@ static bool buttons_enabled = false;
 typedef struct {
     int last_level;
     int stable_ms;
+    int held_ms;
 } btn_state_t;
 
 static btn_state_t btn_state[5];
@@ -178,10 +179,27 @@ static void button_ui_task(void *arg)
         gpio_set_pull_mode((gpio_num_t)btn_gpio[i], GPIO_PULLUP_ONLY);
         btn_state[i].last_level = 1;   /* pulled up = released */
         btn_state[i].stable_ms = 0;
+        btn_state[i].held_ms = 0;
     }
 
     ESP_LOGI(TAG, "UI buttons: up=%d down=%d left=%d right=%d sel=%d",
              btn_gpio[0], btn_gpio[1], btn_gpio[2], btn_gpio[3], btn_gpio[4]);
+
+    /* Read the idle levels once and report them. A pin that reads 0 with the
+     * button released has a short to GND or a missing pull-up; a pin that
+     * floats between reads has a marginal connection. Both explain buttons
+     * that only respond to a hard press. */
+    char idle[5];
+    for (int i = 0; i < 5; i++) {
+        idle[i] = gpio_get_level((gpio_num_t)btn_gpio[i]) ? 'H' : 'L';
+    }
+    ESP_LOGI(TAG, "idle levels (H=ok L=stuck): %c %c %c %c %c",
+             idle[0], idle[1], idle[2], idle[3], idle[4]);
+    if (idle[0] == 'L' || idle[1] == 'L' || idle[2] == 'L' ||
+        idle[3] == 'L' || idle[4] == 'L') {
+        ESP_LOGW(TAG, "a button pin reads LOW while released - check for a "
+                      "short to GND or add a 10k pull-up to 3V3");
+    }
 
     int sel_held_ms = 0;
     bool sel_long_fired = false;
@@ -202,10 +220,24 @@ static void button_ui_task(void *arg)
                             BTN_UP, BTN_DOWN, BTN_LEFT, BTN_RIGHT, BTN_SELECT
                         };
                         handle_event(press_ev[i]);
+                    } else {
+                        /* Release: report how long contact was actually made,
+                         * so a worn button that only connects briefly is
+                         * visible in the log. */
+                        if (btn_state[i].held_ms > 0) {
+                            ESP_LOGD(TAG, "button %d released after %d ms",
+                                     i, btn_state[i].held_ms);
+                        }
                     }
                 }
             } else {
                 btn_state[i].stable_ms = 0;
+            }
+
+            if (btn_state[i].last_level == 0) {
+                btn_state[i].held_ms += BUTTON_POLL_MS;
+            } else {
+                btn_state[i].held_ms = 0;
             }
         }
 
